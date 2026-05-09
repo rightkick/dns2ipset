@@ -2,5 +2,6 @@
 internal/bpf/headers/vmlinux.h
 internal/bpf/*_bpfel.go
 internal/bpf/*_bpfel.o
+internal/bpf/*.bpf.o
 *.test
 *.out
