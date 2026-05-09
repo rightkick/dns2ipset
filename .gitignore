@@ -1,0 +1,6 @@
+/dns2ipset
+internal/bpf/headers/vmlinux.h
+internal/bpf/*_bpfel.go
+internal/bpf/*_bpfel.o
+*.test
+*.out
