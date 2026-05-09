@@ -19,13 +19,15 @@ test-integration:
 	$(GO) test -tags=integration ./...
 
 # Regenerate vmlinux.h and run bpf2go.
-generate: $(BPF_DIR)/headers/vmlinux.h
+generate: $(BPF_DIR)/c/headers/vmlinux.h
 	$(GO) generate ./...
 
-$(BPF_DIR)/headers/vmlinux.h:
-	mkdir -p $(BPF_DIR)/headers
+$(BPF_DIR)/c/headers/vmlinux.h:
+	mkdir -p $(BPF_DIR)/c/headers
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@
 
 clean:
 	rm -f $(BIN)
-	rm -f $(BPF_DIR)/*_bpfel.go $(BPF_DIR)/*_bpfel.o
+	rm -f $(BPF_DIR)/*_bpfel.go $(BPF_DIR)/*_bpfeb.go
+	rm -f $(BPF_DIR)/*_bpfel.o $(BPF_DIR)/*_bpfeb.o
+	rm -f $(BPF_DIR)/c/*.bpf.o
