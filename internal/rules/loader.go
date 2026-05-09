@@ -16,8 +16,8 @@ type Rule struct {
 }
 
 type RuleSet struct {
-	Version  int     `yaml:"version"`
-	Rules    []*Rule `yaml:"rules"`
+	Version  int      `yaml:"version"`
+	Rules    []*Rule  `yaml:"rules"`
 	Warnings []string `yaml:"-"`
 }
 
