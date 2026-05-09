@@ -9,6 +9,7 @@ import (
 	"github.com/rightkick/dns2ipset/internal/dedup"
 	"github.com/rightkick/dns2ipset/internal/dnsparse"
 	"github.com/rightkick/dns2ipset/internal/ipset"
+	"github.com/rightkick/dns2ipset/internal/metrics"
 	"github.com/rightkick/dns2ipset/internal/rules"
 	"github.com/rightkick/dns2ipset/internal/source"
 )
@@ -22,7 +23,8 @@ type Config struct {
 	Dedup   *dedup.Dedup
 	TTLMin  time.Duration
 	TTLMax  time.Duration
-	Log     *slog.Logger // nil-safe: defaults to slog.Default()
+	Log     *slog.Logger     // nil-safe: defaults to slog.Default()
+	Metrics *metrics.Metrics // nil-safe: when nil, no instrumentation
 }
 
 // Pipeline wires source events through dedup, DNS parse, trie lookup, and
@@ -66,6 +68,8 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	return err
 }
 
+func (p *Pipeline) m() *metrics.Metrics { return p.cfg.Metrics }
+
 func (p *Pipeline) worker(ctx context.Context, events <-chan source.Event, done chan<- struct{}) {
 	defer func() { done <- struct{}{} }()
 	for {
@@ -82,40 +86,82 @@ func (p *Pipeline) worker(ctx context.Context, events <-chan source.Event, done 
 }
 
 func (p *Pipeline) handle(ev source.Event) {
+	if m := p.m(); m != nil {
+		switch ev.Direction {
+		case source.DirSend:
+			m.EventsTotal.WithLabelValues("send").Inc()
+		case source.DirRecv:
+			m.EventsTotal.WithLabelValues("recv").Inc()
+		}
+	}
 	if p.cfg.Dedup.Seen(ev.Payload) {
+		if m := p.m(); m != nil {
+			m.DedupHits.Inc()
+		}
 		return
 	}
 	resp, err := dnsparse.Parse(ev.Payload)
 	if err != nil {
+		if m := p.m(); m != nil {
+			m.ParseErrors.Inc()
+		}
 		return
 	}
 	tr := p.cfg.Store.Trie()
 	if tr == nil {
 		return
 	}
-	candidates := uniqueNames(resp)
-	for _, name := range candidates {
+	for _, name := range uniqueNames(resp) {
 		v, ok := tr.Lookup(name)
 		if !ok {
 			continue
 		}
 		rule := v.(*rules.Rule)
+		if m := p.m(); m != nil {
+			m.Matches.WithLabelValues(rule.Domain).Inc()
+		}
 		for _, rec := range resp.Records {
 			set := ""
-			if rec.Family == 4 {
-				set = rule.IPSetV4
-			} else if rec.Family == 6 {
-				set = rule.IPSetV6
+			fam := ""
+			switch rec.Family {
+			case 4:
+				set, fam = rule.IPSetV4, "v4"
+			case 6:
+				set, fam = rule.IPSetV6, "v6"
 			}
 			if set == "" {
 				continue
 			}
 			ttl := ipset.ClampTTL(time.Duration(rec.TTL)*time.Second, p.cfg.TTLMin, p.cfg.TTLMax)
 			if err := p.cfg.IPSet.Add(set, rec.IP, ttl); err != nil {
+				if m := p.m(); m != nil {
+					reason := "other"
+					if isMissingErr(err) {
+						reason = "missing"
+					}
+					m.IPSetErrors.WithLabelValues(reason).Inc()
+				}
 				p.cfg.Log.Debug("ipset add failed", "set", set, "ip", rec.IP, "err", err)
+				continue
+			}
+			if m := p.m(); m != nil {
+				m.IPSetWrites.WithLabelValues(set, fam).Inc()
 			}
 		}
 	}
+}
+
+func isMissingErr(err error) bool {
+	return err != nil && (contains(err.Error(), "missing") || contains(err.Error(), "does not exist"))
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 // uniqueNames returns the QName followed by any unique record owner names in
