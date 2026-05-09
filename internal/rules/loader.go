@@ -26,6 +26,15 @@ func Load(path string) (*RuleSet, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read rules: %w", err)
 	}
+	return loadFromBytes(b)
+}
+
+// LoadFromBytes parses and validates a RuleSet from an in-memory YAML blob.
+func LoadFromBytes(b []byte) (*RuleSet, error) {
+	return loadFromBytes(b)
+}
+
+func loadFromBytes(b []byte) (*RuleSet, error) {
 	var rs RuleSet
 	if err := yaml.Unmarshal(b, &rs); err != nil {
 		return nil, fmt.Errorf("parse rules: %w", err)
