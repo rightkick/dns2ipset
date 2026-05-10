@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -109,6 +110,14 @@ func main() {
 	if *metricsAddr != "" {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", m.Handler())
+		// pprof on the same listener; useful for stress runs (CPU/heap/goroutine).
+		// The endpoint is bound to whatever --metrics-addr binds — keep it on
+		// localhost or a private interface in production.
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		srv := &http.Server{Addr: *metricsAddr, Handler: mux, ReadHeaderTimeout: 3 * time.Second}
 		go func() {
 			log.Info("metrics listening", "addr", *metricsAddr)

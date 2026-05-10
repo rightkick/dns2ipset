@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/rightkick/dns2ipset/internal/dedup"
 	"github.com/rightkick/dns2ipset/internal/dnsparse"
 	"github.com/rightkick/dns2ipset/internal/ipset"
@@ -51,6 +53,21 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		return errors.New("pipeline: missing dependency")
 	}
 	events := make(chan source.Event, 1024)
+
+	// Inflight gauge lives only for this Run; reading len(channel) is cheap
+	// and only happens on Prometheus scrape via NewGaugeFunc.
+	if m := p.m(); m != nil {
+		gauge := prometheus.NewGaugeFunc(
+			prometheus.GaugeOpts{
+				Name: "dns2ipset_pipeline_inflight",
+				Help: "Current number of source events buffered between BPF reader and workers.",
+			},
+			func() float64 { return float64(len(events)) },
+		)
+		if err := m.Registry.Register(gauge); err == nil {
+			defer m.Registry.Unregister(gauge)
+		}
+	}
 
 	srcDone := make(chan error, 1)
 	go func() { srcDone <- p.cfg.Source.Run(ctx, events) }()
