@@ -10,7 +10,7 @@ platform: linux
 version: ${VERSION}
 section: net
 priority: optional
-maintainer: rightkick <noreply@example.invalid>
+maintainer: rightkick <penguinlab@proton.me>
 description: |
   Snoop DNS replies via eBPF and populate Linux kernel ipsets so
   iptables can match traffic by domain.
