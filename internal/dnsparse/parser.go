@@ -71,17 +71,15 @@ func Parse(b []byte) (*Response, error) {
 	// Add all address records
 	r.Records = append(r.Records, addrs...)
 
-	// Second pass: for CNAME owners, add records pointing to their targets
-	// This ensures CNAME owners appear in the Records list
+	// Second pass: for each CNAME owner, mirror every A/AAAA record whose
+	// owner matches the CNAME's target. CDNs often return multiple A records
+	// per name, so iterate the full set rather than stopping at the first.
 	for cnameOwner, cnameTarget := range cnames {
-		// Find address records for the CNAME target
 		for _, rec := range addrs {
 			if rec.Name == cnameTarget {
-				// Create a synthetic record with the CNAME owner name but target's IP
 				r.Records = append(r.Records, Record{
 					Name: cnameOwner, Family: rec.Family, IP: rec.IP, TTL: rec.TTL,
 				})
-				break
 			}
 		}
 	}

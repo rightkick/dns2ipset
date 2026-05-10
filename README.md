@@ -22,6 +22,17 @@ sudo ./dns2ipset --rules /etc/dns2ipset/rules.yaml
 
 ## Install
 
+dns2ipset does **not** create ipsets — it only adds entries. Create each set
+referenced in `rules.yaml` before starting the service, with a `timeout` flag
+so entries can expire (the daemon sets per-entry timeouts via netlink):
+
+```
+sudo ipset create snoop_fb_v4 hash:ip family inet  timeout 86400
+sudo ipset create snoop_fb_v6 hash:ip family inet6 timeout 86400
+```
+
+Then deploy:
+
 ```
 sudo install -m 0755 dns2ipset /usr/local/bin/
 sudo install -d /etc/dns2ipset

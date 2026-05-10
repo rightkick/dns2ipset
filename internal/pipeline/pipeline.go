@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/rightkick/dns2ipset/internal/dedup"
@@ -56,7 +57,7 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 	workerDone := make(chan struct{}, p.cfg.Workers)
 	for i := 0; i < p.cfg.Workers; i++ {
-		go p.worker(ctx, events, workerDone)
+		go p.worker(events, workerDone)
 	}
 
 	// Wait for source to finish (ctx done), then drain workers.
@@ -70,18 +71,13 @@ func (p *Pipeline) Run(ctx context.Context) error {
 
 func (p *Pipeline) m() *metrics.Metrics { return p.cfg.Metrics }
 
-func (p *Pipeline) worker(ctx context.Context, events <-chan source.Event, done chan<- struct{}) {
+func (p *Pipeline) worker(events <-chan source.Event, done chan<- struct{}) {
 	defer func() { done <- struct{}{} }()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-events:
-			if !ok {
-				return
-			}
-			p.handle(ev)
-		}
+	// Workers exit only when the events channel is closed (which happens
+	// after the source returns in Run). Watching ctx.Done() here would race
+	// with channel reads on shutdown and silently drop buffered events.
+	for ev := range events {
+		p.handle(ev)
 	}
 }
 
@@ -152,16 +148,11 @@ func (p *Pipeline) handle(ev source.Event) {
 }
 
 func isMissingErr(err error) bool {
-	return err != nil && (contains(err.Error(), "missing") || contains(err.Error(), "does not exist"))
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
+	if err == nil {
+		return false
 	}
-	return false
+	s := err.Error()
+	return strings.Contains(s, "missing") || strings.Contains(s, "does not exist")
 }
 
 // uniqueNames returns the QName followed by any unique record owner names in

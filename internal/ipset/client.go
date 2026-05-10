@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,18 +85,5 @@ func isMissingSet(err error) bool {
 	}
 	s := err.Error()
 	// vishvananda/netlink surfaces "no such file or directory" / "set with the given name does not exist"
-	return contains(s, "does not exist") || contains(s, "no such")
-}
-
-func contains(s, sub string) bool {
-	return len(sub) > 0 && len(s) >= len(sub) && stringIndex(s, sub) >= 0
-}
-
-func stringIndex(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
+	return strings.Contains(s, "does not exist") || strings.Contains(s, "no such")
 }

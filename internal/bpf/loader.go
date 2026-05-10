@@ -149,3 +149,6 @@ func decode(b []byte) (source.Event, bool) {
 // Compile-time check that endian quirks of bpf2go (it always uses little-endian
 // `_bpfel.o` on amd64/arm64) match the host.
 var _ = binary.LittleEndian
+
+// Compile-time check that *Loader satisfies source.Source.
+var _ source.Source = (*Loader)(nil)

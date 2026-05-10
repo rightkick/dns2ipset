@@ -104,3 +104,27 @@ func TestParse_IgnoresNonAddrRRs(t *testing.T) {
 		t.Error("expected error: only MX records, none usable")
 	}
 }
+
+func TestParse_CNAMEMirrorsAllTargetIPs(t *testing.T) {
+	// CDN-style: CNAME owner points at a target with multiple A records.
+	// All target IPs should be mirrored under the CNAME owner so a rule
+	// matching the user-facing name captures every endpoint.
+	cname := &dns.CNAME{Hdr: dns.RR_Header{Name: "www.cdn.example.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60}, Target: "edge.cdn.example."}
+	a1 := &dns.A{Hdr: dns.RR_Header{Name: "edge.cdn.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.ParseIP("1.1.1.1")}
+	a2 := &dns.A{Hdr: dns.RR_Header{Name: "edge.cdn.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.ParseIP("2.2.2.2")}
+	b := buildResp(t, "www.cdn.example", dns.TypeA, []dns.RR{cname, a1, a2}, dns.RcodeSuccess)
+
+	r, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnameIPs := map[string]bool{}
+	for _, rec := range r.Records {
+		if rec.Name == "www.cdn.example" {
+			cnameIPs[rec.IP.String()] = true
+		}
+	}
+	if !cnameIPs["1.1.1.1"] || !cnameIPs["2.2.2.2"] {
+		t.Errorf("CNAME owner missing IPs: got %v, want both 1.1.1.1 and 2.2.2.2", cnameIPs)
+	}
+}
