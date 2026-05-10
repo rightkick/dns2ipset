@@ -3,7 +3,7 @@ BIN      := dns2ipset
 PKG      := ./cmd/dns2ipset
 LDFLAGS  := -s -w
 BPF_DIR  := internal/bpf
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0)
+VERSION  ?= $(shell ./packaging/git-version.sh)
 
 .PHONY: build vet test test-integration generate bpf package clean
 
