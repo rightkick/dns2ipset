@@ -1,0 +1,21 @@
+[Unit]
+Description=DNS-to-ipset snooper
+After=network-online.target named.service dnsmasq.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dns2ipset --rules /etc/dns2ipset/rules.yaml --metrics-addr 127.0.0.1:9301
+Restart=on-failure
+RestartSec=2s
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryHigh=128M
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
