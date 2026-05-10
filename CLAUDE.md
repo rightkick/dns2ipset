@@ -201,46 +201,37 @@ The systemd unit at `deploy/dns2ipset.service` grants the three required
 caps (`CAP_BPF`, `CAP_PERFMON`, `CAP_NET_ADMIN`) via `AmbientCapabilities=`
 rather than running as root.
 
-### TODO: build once, ship as .deb (cross-host build)
+### Build once, ship as .deb (cross-host)
 
-The current quickstart builds on the target VM. We should be able to build
-on a separate "build" VM and ship the binary to many target VMs as a .deb,
-**without requiring the build and target hosts to share a kernel**:
+`make package` produces `dns2ipset_<version>_amd64.deb` from the same
+toolchain as `make build`. The .deb is portable across kernels, not just
+the build host's kernel:
 
-- **Static binary**: `make build` already produces a CGO_ENABLED=0,
-  statically-linked binary — runs on any glibc-free or modern-glibc Linux
-  of the right arch.
-- **BPF object portability**: bpf2go embeds the `.o` into the Go binary as
-  a `[]byte`. Because the `.o` uses CO-RE relocations, struct field
-  offsets are resolved at LOAD time against the target kernel's BTF — not
-  at compile time. So a binary built on Debian 12 with kernel 6.1 will
-  load on Debian 11 with kernel 5.10 (provided BTF is present), or on
-  Ubuntu 22.04 with 6.5, etc. Only requirement: target kernel ≥ 5.4 with
-  BTF (`/sys/kernel/btf/vmlinux` must exist).
-- **vmlinux.h shim is fine**: even if the build VM used a hand-written
-  shim (because bpftool couldn't parse its BTF), CO-RE only needs field
-  *names* correct in the shim — load-time BTF resolution finds real
-  offsets on the target.
-- **Packaging sketch** (use `nfpm` or `fpm` to skip running Debian's
-  build tooling):
-  - `/usr/local/bin/dns2ipset` (mode 0755)
-  - `/etc/systemd/system/dns2ipset.service`
-  - `/etc/dns2ipset/rules.example.yaml`
-  - postinst: `systemctl daemon-reload`; warn if
-    `/sys/kernel/btf/vmlinux` is missing.
-  - Runtime depends: `ipset`, `iptables`. Build-time tooling
-    (clang, bpftool, libbpf-dev, Go) is **not** a runtime dependency.
-- **What to verify before relying on this**:
-  - On a target VM with a deliberately-different kernel from the build
-    VM, confirm `dns2ipset` loads cleanly and the smoke test passes.
-  - Confirm `dig` populates ipsets across CO-RE'd field renames
-    (`iov_iter.iov` ↔ `iov_iter.__iov`) — the
-    `bpf_core_field_exists()` guard already covers this, but worth
-    verifying on a 5.x and 6.x kernel pair.
+- **Static binary**: `CGO_ENABLED=0` Go binary — no glibc link, runs on any
+  modern Linux of the right arch.
+- **BPF object portability via CO-RE**: bpf2go embeds the `.o` into the Go
+  binary. Struct field offsets are resolved at *load* time against the
+  target kernel's BTF, so a binary built on (e.g.) Ubuntu 22.04 with kernel
+  6.5 loads cleanly on Debian 12 with 6.1 or Debian 11 with 5.10. The CO-RE
+  field-existence guard on `iov_iter.__iov` ↔ `iov_iter.iov`
+  ([internal/bpf/c/dns2ipset.bpf.c](internal/bpf/c/dns2ipset.bpf.c))
+  is what makes this work across the 5.x → 6.x rename.
+- **Only runtime requirement on the target**: kernel ≥ 5.4 with BTF
+  (`/sys/kernel/btf/vmlinux`). The postinst script
+  ([packaging/postinst.sh](packaging/postinst.sh)) checks for it and warns
+  if missing — install still succeeds, but the daemon won't start.
+- **Runtime depends**: `ipset`, `libc6`. Build-time tooling (clang, bpftool,
+  libbpf-dev, Go) is **not** a runtime dependency.
 
-If this works as expected, the Debian VM quickstart becomes a "first-time
-build VM setup" doc and a separate one-pager covers `apt install
-./dns2ipset_*.deb` on every gateway.
+Packaging entry points:
+- [packaging/nfpm.yaml](packaging/nfpm.yaml) — package metadata, file map.
+- [packaging/postinst.sh](packaging/postinst.sh) / [prerm.sh](packaging/prerm.sh) — systemd hooks + BTF check.
+- [docs/build-and-package.md](docs/build-and-package.md) — operator-facing
+  build-and-install walkthrough.
+
+The original [docs/debian-vm-quickstart.md](docs/debian-vm-quickstart.md)
+is now the build-host setup reference; operators of target hosts only
+need the build-and-package doc plus the .deb.
 
 ---
 

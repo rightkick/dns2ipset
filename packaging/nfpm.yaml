@@ -1,0 +1,48 @@
+# nfpm package config for dns2ipset.
+# https://nfpm.goreleaser.com/configuration/
+#
+# Build with:   VERSION=$(git describe --tags --always --dirty) make package
+# The Makefile's `package` target exports VERSION before invoking nfpm.
+
+name: dns2ipset
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: rightkick <noreply@example.invalid>
+description: |
+  Snoop DNS replies via eBPF and populate Linux kernel ipsets so
+  iptables can match traffic by domain.
+  .
+  Requires a kernel with BTF (>= 5.4) and the CAP_BPF, CAP_PERFMON,
+  CAP_NET_ADMIN capabilities (granted via the bundled systemd unit).
+vendor: rightkick
+homepage: https://github.com/rightkick/dns2ipset
+license: MIT
+
+depends:
+  - ipset
+  - libc6
+
+recommends:
+  - iptables
+
+contents:
+  - src: ./dns2ipset
+    dst: /usr/local/bin/dns2ipset
+    file_info:
+      mode: 0755
+  - src: ./deploy/dns2ipset.service
+    dst: /etc/systemd/system/dns2ipset.service
+    file_info:
+      mode: 0644
+  - src: ./deploy/rules.example.yaml
+    dst: /etc/dns2ipset/rules.example.yaml
+    type: config|noreplace
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./packaging/postinst.sh
+  preremove: ./packaging/prerm.sh
