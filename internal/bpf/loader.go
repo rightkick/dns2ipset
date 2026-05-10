@@ -36,9 +36,13 @@ var _ = [1]struct{}{}[unsafe.Sizeof(rawEvent{})-4096-_rawEventHeaderSize]
 
 // Loader attaches BPF programs and reads events from the ring buffer.
 type Loader struct {
-	objs    BpfObjects
-	links   []link.Link
-	rd      *ringbuf.Reader
+	objs  BpfObjects
+	links []link.Link
+	rd    *ringbuf.Reader
+	// metrics is reserved for future drop accounting. cilium/ebpf v0.21's
+	// ringbuf.Record exposes no per-record loss count (that's a perf-buffer
+	// concept), so dns2ipset_ringbuf_drops_total currently never increments
+	// from this loader. Drops, when wired, will route through this field.
 	metrics *metrics.Metrics
 }
 
