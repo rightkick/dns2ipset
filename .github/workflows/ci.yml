@@ -48,7 +48,7 @@ jobs:
 
       # ----- Release steps. Only run on push to main. -----
 
-      - name: compute next semver version
+      - name: compute next semver version and release-worthiness
         id: version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -59,28 +59,48 @@ jobs:
                    | head -1 || true)
           if [ -z "$latest" ]; then
             version="0.0.1"
+            range="HEAD"
           else
             base="${latest#v}"
             IFS='.' read -r major minor patch <<< "$base"
             patch=$((patch + 1))
             version="${major}.${minor}.${patch}"
+            range="${latest}..HEAD"
           fi
+
+          # Only release when the new commits include something user-impacting.
+          # Conventional-commits prefixes that warrant a release: feat, fix,
+          # perf, refactor. Docs, ci, chore, style, test, build merges do not
+          # cut a new .deb.
+          release_re='^(feat|fix|perf|refactor)(\(.+\))?!?:'
+          if git log --format='%s' "$range" | grep -qE "$release_re"; then
+            release=true
+            echo "Release-worthy commits since ${latest:-<initial>}:"
+            git log --format='  %h %s' "$range" | grep -E "$release_re" || true
+          else
+            release=false
+            echo "No feat/fix/perf/refactor commits since ${latest:-<initial>}; skipping release."
+            echo "Commits in range:"
+            git log --format='  %h %s' "$range" || true
+          fi
+
           {
             echo "version=${version}"
             echo "tag=v${version}"
+            echo "release=${release}"
           } >> "$GITHUB_OUTPUT"
-          echo "Next release: v${version} (after ${latest:-<no prior tags>})"
+          echo "Next release: v${version} (after ${latest:-<no prior tags>})  release=${release}"
 
       - name: package .deb
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.release == 'true'
         run: VERSION=${{ steps.version.outputs.version }} make package
 
       - name: checksums
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.release == 'true'
         run: sha256sum dns2ipset_*_amd64.deb > SHA256SUMS
 
       - name: create release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.version.outputs.release == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
