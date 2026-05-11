@@ -13,6 +13,82 @@ toolchain. Thanks to CO-RE the same `.deb` works across kernel versions
 
 ---
 
+## Architecture
+
+dns2ipset attaches **two eBPF programs** to the kernel via `fentry` at
+`udp_sendmsg` and `udp_recvmsg`. Those are the syscall entry points every
+UDP datagram traverses on its way in or out of any socket — so the daemon
+sees every UDP packet processed by the host, regardless of which process
+sent or received it. A port-53 filter inside the BPF program throws away
+anything that isn't DNS; everything else is shipped up to userspace via a
+ringbuf map. dns2ipset does not bind a socket, doesn't run as the
+resolver, and isn't on the data path — it's a kernel-side observer.
+
+```mermaid
+flowchart TB
+    Clients["LAN clients"]
+    Upstream["Upstream DNS<br/>(root hints / 1.1.1.1 / ...)"]
+
+    subgraph Gateway["Gateway host (where dns2ipset runs)"]
+        direction TB
+
+        Resolver["Recursive resolver<br/>bind9 / dnsmasq / unbound"]
+
+        subgraph Kernel["Kernel"]
+            direction TB
+            Hooks["udp_sendmsg &nbsp;|&nbsp; udp_recvmsg<br/><i>fentry attach point</i>"]
+            BPF{{"eBPF program<br/>1) filter: sport==53 OR dport==53<br/>2) copy DNS payload to ringbuf"}}
+            Ring[("ringbuf map<br/>1 MiB")]
+            Hooks -->|"inline, every UDP datagram"| BPF
+            BPF -->|"only port-53 traffic"| Ring
+        end
+
+        subgraph Pipeline["dns2ipset (Go, userspace)"]
+            direction TB
+            Reader["ringbuf reader"]
+            Dedup["dedup LRU<br/>(collapses send/recv views)"]
+            Parser["DNS parse<br/>(miekg/dns)"]
+            Match["suffix-trie match<br/>against rules.yaml"]
+            Add["netlink IPSET_CMD_ADD"]
+            Reader --> Dedup --> Parser --> Match --> Add
+        end
+
+        Rules[/"/etc/dns2ipset/rules.yaml<br/>(inotify-watched, hot-reload)"/]
+        Sets[("kernel ipsets<br/>snoop_*_v4 / _v6")]
+        Iptables["iptables &nbsp;-m set &nbsp;--match-set ...<br/>(rule enforcement, separate from dns2ipset)"]
+    end
+
+    Clients <-->|"UDP :53"| Resolver
+    Resolver <-->|"UDP :53 (on cache miss)"| Upstream
+    Resolver -.->|"every UDP send/recv<br/>traps into the kernel here"| Hooks
+    Ring --> Reader
+    Rules -.->|"atomic snapshot swap"| Match
+    Add --> Sets
+    Sets --> Iptables
+    Iptables -.->|"drop / allow / mark<br/>per-domain"| Clients
+
+    classDef bpf fill:#fef3c7,stroke:#d97706,color:#000
+    classDef ipset fill:#dbeafe,stroke:#2563eb,color:#000
+    class Hooks,BPF,Ring bpf
+    class Sets,Iptables ipset
+```
+
+**Where it snoops** (highlighted in amber above): the two `fentry` hooks
+on `udp_sendmsg` and `udp_recvmsg`. Both hooks fire whether the resolver
+served the answer from its cache or fetched it fresh from upstream — so
+cached responses are observed too.
+
+**What it does not do** (highlighted in blue above): create ipsets,
+manage iptables, drop traffic, or otherwise affect the data path.
+dns2ipset only *populates* sets that an upstream rule generator has
+already created and that an iptables ruleset already references.
+
+For the full design rationale and known limitations see
+[CLAUDE.md](CLAUDE.md) and
+[docs/superpowers/specs/2026-05-09-dns2ipset-design.md](docs/superpowers/specs/2026-05-09-dns2ipset-design.md).
+
+---
+
 ## Build the .deb (on a build host)
 
 Prerequisites (Debian 12 / Ubuntu 22.04, one-time):
