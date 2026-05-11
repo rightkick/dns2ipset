@@ -23,9 +23,22 @@ test-integration:
 generate: $(BPF_DIR)/c/headers/vmlinux.h
 	$(GO) generate ./...
 
-$(BPF_DIR)/c/headers/vmlinux.h:
-	mkdir -p $(BPF_DIR)/c/headers
-	bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@
+# Try to generate vmlinux.h from the running kernel's BTF. If bpftool is
+# missing or refuses to parse the kernel's BTF (common on CI runners and
+# WSL2 where the bpftool/kernel versions don't agree), fall back to the
+# committed minimal shim. CO-RE resolves real field offsets at load time,
+# so the shim is functionally equivalent for our purposes.
+$(BPF_DIR)/c/headers/vmlinux.h: $(BPF_DIR)/c/headers/vmlinux.h.shim
+	@mkdir -p $(BPF_DIR)/c/headers
+	@if command -v bpftool >/dev/null 2>&1 && [ -r /sys/kernel/btf/vmlinux ] \
+	    && bpftool btf dump file /sys/kernel/btf/vmlinux format c > $@.tmp 2>/dev/null; then \
+	    mv $@.tmp $@; \
+	    echo "vmlinux.h: generated from /sys/kernel/btf/vmlinux"; \
+	else \
+	    rm -f $@.tmp; \
+	    cp $(BPF_DIR)/c/headers/vmlinux.h.shim $@; \
+	    echo "vmlinux.h: bpftool unavailable or refused BTF; using committed shim"; \
+	fi
 
 # Build a .deb package via nfpm. Requires `make build` to have produced
 # ./dns2ipset. VERSION is exported for nfpm.yaml's ${VERSION} expansion.
