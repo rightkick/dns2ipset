@@ -1,0 +1,11 @@
+/dns2ipset
+internal/bpf/c/headers/vmlinux.h
+internal/bpf/*_bpfel.go
+internal/bpf/*_bpfeb.go
+internal/bpf/*_bpfel.o
+internal/bpf/*_bpfeb.o
+internal/bpf/c/*.bpf.o
+dns2ipset_*_amd64.deb
+stress/fake-resolver/fake-resolver
+*.test
+*.out

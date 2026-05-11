@@ -1,0 +1,7 @@
+version: 1
+rules:
+  - domain: facebook.com
+    ipset_v4: snoop_fb_v4
+    ipset_v6: snoop_fb_v6
+  - domain: ads.example.org
+    ipset_v4: snoop_ads_v4
