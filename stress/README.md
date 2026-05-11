@@ -140,19 +140,56 @@ State changes between runs happen on the **gateway**, manually:
 | `cold-on`  | `sudo systemctl start dns2ipset` ; flush resolver cache as above |
 | `warm-on`  | Nothing — cache is hot |
 
-Then on the client, one invocation per row:
+> **Be polite to upstream on cold runs.** A cold-cache pass with the default
+> `QUERIES_COUNT=10000` and `CONCURRENCY=100` will fire ~1500 outbound qps
+> at your gateway's upstream DNS (Cloudflare, Google, etc.). Public resolvers
+> rate-limit at roughly that threshold and start returning `REFUSED`, which
+> dnsmasq dutifully forwards back. The resulting dnsperf report shows
+> 80–100% REFUSED responses and measures rejection latency, not resolver
+> performance.
+>
+> For meaningful cold runs use a smaller query set and low concurrency.
+> Warm runs can be aggressive — everything's cache-hit, no upstream traffic.
+
+Recommended four-run invocation (all from the **client VM**):
 
 ```bash
-TARGET=gw.lab.local LABEL=cold-off bash stress/scenarios/07-perf-baseline.sh
-TARGET=gw.lab.local LABEL=warm-off bash stress/scenarios/07-perf-baseline.sh
+# cold-off: small set + low concurrency to stay under upstream rate limits
+QUERIES_COUNT=100 CONCURRENCY=5   TARGET=gw.lab.local LABEL=cold-off \
+    bash stress/scenarios/07-perf-baseline.sh
+
+# warm-off: cache is hot now; aggressive concurrency is safe and informative
+QUERIES_COUNT=100 CONCURRENCY=100 TARGET=gw.lab.local LABEL=warm-off \
+    bash stress/scenarios/07-perf-baseline.sh
+
 # … swap dns2ipset state + flush cache on the gateway …
-TARGET=gw.lab.local LABEL=cold-on  bash stress/scenarios/07-perf-baseline.sh
-TARGET=gw.lab.local LABEL=warm-on  bash stress/scenarios/07-perf-baseline.sh
+
+QUERIES_COUNT=100 CONCURRENCY=5   TARGET=gw.lab.local LABEL=cold-on \
+    bash stress/scenarios/07-perf-baseline.sh
+
+QUERIES_COUNT=100 CONCURRENCY=100 TARGET=gw.lab.local LABEL=warm-on \
+    bash stress/scenarios/07-perf-baseline.sh
 ```
 
 Each run prints a dnsperf `Statistics:` block (queries per second, avg
 latency, latency stddev, response code distribution) and points at a
 preserved workdir under `/tmp` with the full report.
+
+**Sanity check after the first run:** the report should show
+`Response codes: NOERROR …%` near 100%. If you see any meaningful share
+of `REFUSED`, your upstream is rate-limiting — drop `CONCURRENCY` further
+(try `1` or `2`) or shrink `QUERIES_COUNT`.
+
+### Scaling beyond top-100
+
+100 names overlapping the snoop list is the sweet spot for measuring
+dns2ipset overhead because every cache hit also matches a rule, exercising
+the full hot path. If you want a broader cold-perf number across more of
+the Tranco list, bump `QUERIES_COUNT` to 1000 and keep `CONCURRENCY=5`;
+the cold pass takes longer (single-digit minutes) but stays under public
+DNS rate limits. The dns2ipset side cares about responses-per-second, not
+total query count, so a longer pass at lower QPS doesn't change what
+you're measuring.
 
 ### What the numbers tell you
 
