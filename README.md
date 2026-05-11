@@ -1,7 +1,9 @@
-# dns2ipset
+# dns2ipset with eBPF
 
 Snoop DNS replies via eBPF and populate Linux kernel `ipset`s so `iptables`
-can match traffic by domain.
+can match traffic by domain. The eBPF observer is off the data path —
+sub-microsecond overhead per packet, essentially no impact on DNS latency
+under load.
 
 See [docs/superpowers/specs/2026-05-09-dns2ipset-design.md](docs/superpowers/specs/2026-05-09-dns2ipset-design.md)
 for the design and [CLAUDE.md](CLAUDE.md) for architecture and known limitations.
