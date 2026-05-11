@@ -126,12 +126,16 @@ clear_rules() {
     printf "version: 1\nrules: []\n" | rules_write
 }
 
-# wipe_bench_ipsets — destroy all snoop_bench_*_v4 sets.
-wipe_bench_ipsets() {
-    sudo ipset list -terse 2>/dev/null | awk '/^Name: snoop_bench_/ {print $2}' | while read -r s; do
+# wipe_ipsets_with_prefix <prefix> — destroy every ipset whose name starts with <prefix>.
+wipe_ipsets_with_prefix() {
+    local prefix=$1
+    sudo ipset list -terse 2>/dev/null | awk -v p="^Name: ${prefix}" '$0 ~ p {print $2}' | while read -r s; do
         ipset_destroy "$s"
     done
 }
+
+# wipe_bench_ipsets — destroy all snoop_bench_*_v4 sets.
+wipe_bench_ipsets() { wipe_ipsets_with_prefix snoop_bench_; }
 
 # metrics_get <name> [labels-substr] — read a single counter/gauge value.
 # Example: metrics_get dns2ipset_events_total 'direction="recv"'
