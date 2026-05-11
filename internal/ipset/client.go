@@ -51,7 +51,11 @@ func (n *Netlink) Add(set string, ip net.IP, ttl time.Duration) error {
 		return errors.New("empty set or nil ip")
 	}
 	timeout := uint32(ttl.Seconds())
-	entry := &netlink.IPSetEntry{IP: ip, Timeout: &timeout}
+	// Replace=true sets IPSET_FLAG_EXIST on the netlink request, so adding an
+	// IP that's already in the set succeeds and refreshes its kernel timeout
+	// instead of returning EEXIST. We want both effects: re-resolutions for a
+	// still-live target should extend its TTL in the kernel, not error.
+	entry := &netlink.IPSetEntry{IP: ip, Timeout: &timeout, Replace: true}
 	if err := netlink.IpsetAdd(set, entry); err != nil {
 		// Detect "set not found" — netlink wraps an errno; fall back to substring.
 		if isMissingSet(err) {
