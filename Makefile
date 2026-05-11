@@ -42,8 +42,13 @@ $(BPF_DIR)/c/headers/vmlinux.h: $(BPF_DIR)/c/headers/vmlinux.h.shim
 
 # Build a .deb package via nfpm. Requires `make build` to have produced
 # ./dns2ipset. VERSION is exported for nfpm.yaml's ${VERSION} expansion.
+#
+# GOTOOLCHAIN=auto lets `go run` download whatever Go version nfpm needs
+# at the moment (nfpm bumps its minimum Go from time to time and we don't
+# want our own toolchain bump to be a prerequisite for cutting a release).
+# Requires Go ≥ 1.21 locally; the rest is auto-fetched into ~/.cache/go-build.
 package: build
-	VERSION=$(VERSION) $(GO) run github.com/goreleaser/nfpm/v2/cmd/nfpm@latest pkg \
+	VERSION=$(VERSION) GOTOOLCHAIN=auto $(GO) run github.com/goreleaser/nfpm/v2/cmd/nfpm@latest pkg \
 		--config packaging/nfpm.yaml \
 		--target dns2ipset_$(VERSION)_amd64.deb \
 		--packager deb
