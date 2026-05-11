@@ -16,15 +16,18 @@ and reload behavior of dns2ipset on a real Linux host.
 stress/
 ├── lib.sh                  common helpers (metrics snapshots, ipset ops, fake resolver lifecycle)
 ├── teardown.sh             cleanup (destroy bench ipsets, restore rules.yaml)
+├── setup-snoop-rules.sh    one-time gateway-side: top-N domain-list → rules.yaml + ipsets
+├── domain-list.csv         100k-domain Tranco-format CSV (rank,domain) used as input
 ├── fake-resolver/main.go   deterministic miekg/dns server with rotating IP pool
 └── scenarios/
-    ├── 00-overhead.sh         dns2ipset OFF vs ON — headline overhead number
-    ├── 01-single-rule-ramp.sh resperf ramp 0 → MAX_QPS to find saturation
+    ├── 00-overhead.sh         dns2ipset OFF vs ON — headline overhead number (fake resolver)
+    ├── 01-single-rule-ramp.sh resperf ramp 0 → MAX_QPS to find saturation (fake resolver)
     ├── 02-cardinality.sh      single rule, large IP pool — stresses ipset growth
     ├── 03-many-rules.sh       N rules, queries cycle — stresses trie + dispatch
     ├── 04-burst.sh            low/high/low cycles — stresses channel buffer + dedup
     ├── 05-sustained.sh        long-duration steady-state — leak/RSS/GC trend
-    └── 06-reload-under-load.sh  atomic-rename rules.yaml mid-flight
+    ├── 06-reload-under-load.sh  atomic-rename rules.yaml mid-flight
+    └── 07-perf-baseline.sh    client-side: dnsperf against a real resolver (no fake)
 ```
 
 There's also a Go micro-benchmark at `internal/pipeline/pipeline_bench_test.go`
@@ -92,6 +95,122 @@ Every scenario:
 
 All scripts respect environment variables for the main tunables — see the
 top of each script for the list and defaults.
+
+---
+
+## Manual perf comparison against a real resolver (scenario 07)
+
+`07-perf-baseline.sh` is different from the others — it's **client-side only**
+and does not modify the target server. The intent is to measure realistic
+DNS performance (latency, throughput, error counts) against a real recursive
+resolver (e.g. bind9 or dnsmasq), with and without dns2ipset snooping, and
+at cold and warm cache. Comparisons come from running the script four times
+with the server in different states.
+
+Driver: a separate VM running just `dnsperf`. Target: the gateway running
+the resolver + dns2ipset.
+
+### One-time setup
+
+On the **gateway** (where dns2ipset is installed), generate a snoop config
+covering the top N of the same domain list the client will query from:
+
+```bash
+sudo SNOOP_COUNT=100 bash stress/setup-snoop-rules.sh
+```
+
+This atomically writes `/etc/dns2ipset/rules.yaml` with N rules and creates
+N `snoop_top_<i>_v4` ipsets. dns2ipset's inotify watcher picks up the new
+rules.yaml without a service restart.
+
+On the **client VM**:
+
+```bash
+sudo apt-get install -y dnsperf
+```
+
+### The four runs
+
+State changes between runs happen on the **gateway**, manually:
+
+| Before this run | Action on the gateway |
+|---|---|
+| `cold-off` | `sudo systemctl stop dns2ipset` ; `sudo kill -HUP $(pidof dnsmasq)` (or `rndc flush` for bind9) |
+| `warm-off` | Nothing — cache is hot from the previous run |
+| `cold-on`  | `sudo systemctl start dns2ipset` ; flush resolver cache as above |
+| `warm-on`  | Nothing — cache is hot |
+
+> **Be polite to upstream on cold runs.** A cold-cache pass with the default
+> `QUERIES_COUNT=10000` and `CONCURRENCY=100` will fire ~1500 outbound qps
+> at your gateway's upstream DNS (Cloudflare, Google, etc.). Public resolvers
+> rate-limit at roughly that threshold and start returning `REFUSED`, which
+> dnsmasq dutifully forwards back. The resulting dnsperf report shows
+> 80–100% REFUSED responses and measures rejection latency, not resolver
+> performance.
+>
+> For meaningful cold runs use a smaller query set and low concurrency.
+> Warm runs can be aggressive — everything's cache-hit, no upstream traffic.
+
+Recommended four-run invocation (all from the **client VM**):
+
+```bash
+# cold-off: small set + low concurrency to stay under upstream rate limits
+QUERIES_COUNT=100 CONCURRENCY=5   TARGET=gw.lab.local LABEL=cold-off \
+    bash stress/scenarios/07-perf-baseline.sh
+
+# warm-off: cache is hot now; aggressive concurrency is safe and informative
+QUERIES_COUNT=100 CONCURRENCY=100 TARGET=gw.lab.local LABEL=warm-off \
+    bash stress/scenarios/07-perf-baseline.sh
+
+# … swap dns2ipset state + flush cache on the gateway …
+
+QUERIES_COUNT=100 CONCURRENCY=5   TARGET=gw.lab.local LABEL=cold-on \
+    bash stress/scenarios/07-perf-baseline.sh
+
+QUERIES_COUNT=100 CONCURRENCY=100 TARGET=gw.lab.local LABEL=warm-on \
+    bash stress/scenarios/07-perf-baseline.sh
+```
+
+Each run prints a dnsperf `Statistics:` block (queries per second, avg
+latency, latency stddev, response code distribution) and points at a
+preserved workdir under `/tmp` with the full report.
+
+**Sanity check after the first run:** the report should show
+`Response codes: NOERROR …%` near 100%. If you see any meaningful share
+of `REFUSED`, your upstream is rate-limiting — drop `CONCURRENCY` further
+(try `1` or `2`) or shrink `QUERIES_COUNT`.
+
+### Scaling beyond top-100
+
+100 names overlapping the snoop list is the sweet spot for measuring
+dns2ipset overhead because every cache hit also matches a rule, exercising
+the full hot path. If you want a broader cold-perf number across more of
+the Tranco list, bump `QUERIES_COUNT` to 1000 and keep `CONCURRENCY=5`;
+the cold pass takes longer (single-digit minutes) but stays under public
+DNS rate limits. The dns2ipset side cares about responses-per-second, not
+total query count, so a longer pass at lower QPS doesn't change what
+you're measuring.
+
+### What the numbers tell you
+
+- **cold-off vs cold-on**: upstream-bound. BPF overhead is sub-millisecond
+  and disappears into the upstream RTT noise (50-300 ms). Expect these to
+  be statistically indistinguishable. A visible delta is a flag.
+- **warm-off vs warm-on**: the headline — this is where the BPF inline
+  cost is most visible because there's no upstream RTT to hide behind.
+  Expect a measurable but small overhead (few percent of latency).
+- **cold-X vs warm-X (either column)**: tells you the cold-miss penalty
+  for this query mix on this resolver. Useful as its own datapoint.
+
+### Cleanup on the gateway
+
+When you're done:
+
+```bash
+# from the dns2ipset repo on the gateway
+. stress/lib.sh && wipe_ipsets_with_prefix snoop_top_
+sudo bash stress/teardown.sh   # restores rules.yaml to rules: [] and restarts dns2ipset
+```
 
 ---
 
