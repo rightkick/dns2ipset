@@ -1,20 +1,31 @@
 name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+  ci:
+    runs-on: ubuntu-22.04
+    permissions:
+      # Required for the release step below; harmless on PR/manual runs.
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so `git tag --list` sees prior releases on main.
+          fetch-depth: 0
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+          cache: true
+
       - name: install bpf toolchain
         run: |
           sudo apt-get update
@@ -22,7 +33,60 @@ jobs:
           # bpftool ships under linux-tools-`uname -r` on ubuntu-22.04 runners.
           BPFTOOL=$(ls /usr/lib/linux-tools-*/bpftool | head -n1)
           sudo ln -sf "$BPFTOOL" /usr/local/bin/bpftool
+
+      # ----- Steps that run on every event (PR, push, manual) -----
+
       - run: make generate
       - run: go vet ./...
-      - run: go test ./...
+      - run: go test ./... -count=1
+
+      - name: bench smoke
+        # Just confirms benchmarks still compile and produce output. No perf budget.
+        run: go test -run='^$' -bench=BenchmarkPipeline -benchtime=2x -benchmem ./internal/pipeline/
+
       - run: make build
+
+      # ----- Release steps. Only run on push to main. -----
+
+      - name: compute next semver version
+        id: version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          # Find latest strict-semver tag (vMAJOR.MINOR.PATCH, no suffixes).
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                   | head -1 || true)
+          if [ -z "$latest" ]; then
+            version="0.0.1"
+          else
+            base="${latest#v}"
+            IFS='.' read -r major minor patch <<< "$base"
+            patch=$((patch + 1))
+            version="${major}.${minor}.${patch}"
+          fi
+          {
+            echo "version=${version}"
+            echo "tag=v${version}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Next release: v${version} (after ${latest:-<no prior tags>})"
+
+      - name: package .deb
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: VERSION=${{ steps.version.outputs.version }} make package
+
+      - name: checksums
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: sha256sum dns2ipset_*_amd64.deb > SHA256SUMS
+
+      - name: create release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dns2ipset_*_amd64.deb
+            SHA256SUMS
+          fail_on_unmatched_files: true
