@@ -2,6 +2,10 @@
   <img src="dns2ipset-logo.png" alt="dns2ipset logo" width="200">
 </p>
 
+<p align="center">
+  <a href="https://github.com/rightkick/dns2ipset/actions/workflows/ci.yml"><img src="https://github.com/rightkick/dns2ipset/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+</p>
+
 # Why?
 
 I wanted to firewall traffic by domain without being tied to a specific resolver. DNS RPZ is trivially bypassed via direct IPs, and dnsmasq's ipset feature only works if you run dnsmasq. This snoops every DNS reply on the host regardless of resolver, so the same rules work whether you switch to bind9, unbound, or anything else.
@@ -115,6 +119,17 @@ Tests:
 go test ./... -race
 make test-integration  # requires root + ipset (build-tag `integration`)
 ```
+
+---
+
+## Roadmap
+
+- Export additional DNS stats as Prometheus metrics.
+- Support rules sourced from threat intelligence feeds.
+- Load rules in memory for faster processing.
+- Provide an API for rules management.
+- Enrich the Grafana dashboard.
+- Add `iptables` and `nftables` integration examples.
 
 ---
 
