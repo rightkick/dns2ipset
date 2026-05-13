@@ -118,6 +118,17 @@ make test-integration  # requires root + ipset (build-tag `integration`)
 
 ---
 
+## Roadmap
+
+- Export additional DNS stats as Prometheus metrics.
+- Support rules sourced from threat intelligence feeds.
+- Load rules in memory for faster processing.
+- Provide an API for rules management.
+- Enrich the Grafana dashboard.
+- Add `iptables` and `nftables` integration examples.
+
+---
+
 ## More docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture diagram, component
