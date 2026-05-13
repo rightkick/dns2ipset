@@ -21,26 +21,12 @@ match traffic by domain.
 
 ---
 
-## Architecture at a glance
+## Architecture
 
-```
-        rules.yaml ──(inotify)──► rules.Store (atomic snapshot: RuleSet + Trie)
-                                          │
-        kernel: udp_sendmsg/recvmsg       │ (read on every event)
-              │                           ▼
-              │  fentry BPF, port-53 filter, copy payload
-              ▼
-        BPF_MAP_TYPE_RINGBUF ──► bpf.Loader (cilium/ebpf) ──► source.Event chan
-                                                                    │
-                                                                    ▼
-                                          dedup LRU → dnsparse → trie.Lookup
-                                                                    │
-                                                                    ▼
-                                              netlink IPSET_CMD_ADD with timeout
-```
-
-Kernel side is intentionally thin: filter, copy payload, ship it. Userspace
-owns parsing and matching so trie reloads don't touch BPF maps.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the diagram, component
+breakdown, key design choices (CNAME synthesis, atomic snapshot store,
+shortest-suffix-wins trie, per-CPU BPF scratch, etc.), and known
+limitations. This file does not duplicate that content.
 
 ---
 
@@ -64,10 +50,9 @@ dns2ipset/
 │   ├── pipeline/   wires Source → dedup → parse → trie → ipset.Add
 │   └── metrics/    Prometheus instruments
 ├── deploy/dns2ipset.service / rules.example.yaml
-├── docs/superpowers/
-│   ├── specs/2026-05-09-dns2ipset-design.md       # design
-│   └── plans/2026-05-09-dns2ipset-implementation.md  # 15-task TDD plan
+├── ARCHITECTURE.md                   # architecture, design decisions, limitations
 ├── docs/debian-vm-quickstart.md      # end-to-end VM install + smoke test
+├── docs/build-and-package.md         # build-and-install walkthrough
 └── .github/workflows/ci.yml
 ```
 
@@ -103,71 +88,14 @@ fields the BPF program touches (CO-RE resolves real offsets at load time).
 
 ---
 
-## Key design choices (the non-obvious bits)
+## Key design choices and known limitations
 
-### 1. C source lives in `internal/bpf/c/`, not `internal/bpf/`
-Go's toolchain treats `.c` files in a Go package directory as cgo sources and
-errors out with "C source files not allowed when not using cgo". The C is
-moved one level down into `c/` and bpf2go is pointed at `c/dns2ipset.bpf.c`.
-
-### 2. Atomic snapshot store with pre-built trie
-`rules.Store` holds a `*snapshot{RuleSet, Trie}` via `atomic.Value`. `Replace`
-builds the new trie synchronously and stores both atomically. The pipeline
-hot path calls `Store.Trie()` once per event — a single atomic load, no
-rebuild. `Replace(nil)` is a deliberate no-op (an `atomic.Value` typed-nil
-would panic).
-
-### 3. Pipeline workers exit on events-channel close, not on ctx
-Earlier iteration had `select { ctx.Done() | events }` in workers, which
-raced shutdown into silently dropping buffered events. `Run()` already closes
-`events` after the source returns; workers just `for ev := range events`.
-Don't reintroduce the ctx-watch in the worker.
-
-### 4. CNAME synthesis in the DNS parser
-The plan's spec test demands CNAME owner-names appear in `Response.Records`,
-so `dnsparse.Parse` does a second pass: for every CNAME owner whose target
-has matching A/AAAA records in the same response, append a synthetic record
-under the CNAME owner with the target's IPs. **All matches**, not just the
-first — CDN responses commonly return multiple A records per name.
-
-### 5. Trie is shortest-suffix-wins
-Per the design spec ("first terminal match wins walking right-to-left"). If
-both `example.org` and `ads.example.org` are configured, a query for
-`foo.ads.example.org` resolves to `example.org`'s ipset. Unusual — most DNS
-suffix matching uses longest-match. Tests lock this in
-(`TestTrie_ShortestSuffixWins`); changing requires plan/spec amendment.
-
-### 6. BPF: per-CPU scratch + `bpf_ringbuf_output`
-`struct event` is ~4112 bytes — far too large for the 512-byte BPF stack —
-so we use a `BPF_MAP_TYPE_PERCPU_ARRAY` of size 1 as scratch. We also use
-`bpf_ringbuf_output` instead of `bpf_ringbuf_reserve` + `__builtin_memcpy` +
-`bpf_ringbuf_submit`: clang-11 with `-target bpf` won't inline a 4 KB
-`__builtin_memcpy` and the verifier rejects the resulting `memcpy` call.
-`bpf_ringbuf_output` is the explicit helper for this case.
-
-### 7. CO-RE field-existence guard for `iov_iter`
-Kernel 5.x has `iov_iter.iov`, 6.x renamed it to `iov_iter.__iov`. The C uses
-`bpf_core_field_exists(iter.__iov)` to pick at load time. The hand-written
-`vmlinux.h` shim must declare both fields (typically as a union) for the
-guard to compile.
-
-### 8. Force-reload paths
-Two ways: (a) inotify watches the parent dir of `rules.yaml` and fires on
-`IN_MOVED_TO` (atomic rename) or `IN_CLOSE_WRITE` (in-place edit);
-(b) `SIGHUP` triggers the same reload closure. Reload failure keeps the
-prior trie in effect and increments `dns2ipset_rules_reload_total{result="error"}`.
-
----
-
-## Known limitations / TODOs
-
-| Item | Where | Notes |
-|---|---|---|
-| `dns2ipset_ringbuf_drops_total` always 0 | `internal/bpf/loader.go` | cilium/ebpf v0.21 `ringbuf.Record` has no per-record loss count (that's a perf-buffer concept). Counter exists for future wiring. |
-| `bpf_probe_read` order | `internal/bpf/c/dns2ipset.bpf.c` | Tries generic `bpf_probe_read` before `bpf_probe_read_kernel`. On kernels ≥ 5.14 the generic helper is deprecated; ideal order is `bpf_probe_read_user` for `udp_sendmsg`, `bpf_probe_read_kernel` for `udp_recvmsg`. Currently works on 6.1; revisit if loading fails on stricter kernels. |
-| Trie semantics ambiguity | `internal/rules/trie.go` | Shortest-suffix-wins per spec; convention is longest. If users want longest, only `Lookup` and one test change. |
-| CI does not load BPF on a real kernel | `.github/workflows/ci.yml` | The Debian VM walkthrough is the kernel-load gate. |
-| Single-iov-segment read | BPF C `handle()` | Only `iov[0]` is copied. UDP DNS is always single-segment in practice; multi-segment iovs would silently drop later segments. |
+Documented in [ARCHITECTURE.md](ARCHITECTURE.md). Read it before changing
+anything in `internal/bpf/`, `internal/rules/`, `internal/dnsparse/`, or
+`internal/pipeline/` — several non-obvious invariants are recorded there
+(CNAME multi-A synthesis, shortest-suffix-wins trie, atomic snapshot
+store, per-CPU BPF scratch + `bpf_ringbuf_output`, CO-RE guard on
+`iov_iter`, pipeline shutdown semantics).
 
 ---
 
@@ -237,18 +165,15 @@ need the build-and-package doc plus the .deb.
 
 ## Process notes (how this branch was built)
 
-The implementation followed the **superpowers:writing-plans** →
-**superpowers:subagent-driven-development** flow:
+The initial implementation followed the **superpowers:writing-plans** →
+**superpowers:subagent-driven-development** flow: each task was implemented
+by a fresh subagent following TDD, reviewed by separate spec-compliance and
+code-quality subagents, and committed before moving on — so the commit
+history mirrors the task structure 1:1. A holistic final review caught two
+correctness bugs (CNAME multi-A drop; pipeline shutdown drain race) that
+single-task reviews missed; both were fixed in commit `53b2a57`.
 
-1. Design lives at [docs/superpowers/specs/2026-05-09-dns2ipset-design.md](docs/superpowers/specs/2026-05-09-dns2ipset-design.md).
-2. The 15-task TDD plan with full per-task code is at [docs/superpowers/plans/2026-05-09-dns2ipset-implementation.md](docs/superpowers/plans/2026-05-09-dns2ipset-implementation.md).
-3. Each task was implemented by a fresh subagent following TDD, then
-   reviewed by separate spec-compliance and code-quality subagents before
-   moving on. Commit history mirrors the task structure 1:1.
-4. A holistic final review caught two correctness bugs (CNAME multi-A drop;
-   pipeline shutdown drain race) that single-task reviews missed; both were
-   fixed in commit `53b2a57`.
-
-If you're adding a feature: prefer extending the plan and re-running the
-subagent flow over hand-coding directly. The plan's per-task structure
-makes iterative review tractable.
+If you're adding a non-trivial feature, prefer writing a plan and running
+the subagent flow over hand-coding directly. Architectural invariants live
+in [ARCHITECTURE.md](ARCHITECTURE.md) — extend that file when a change
+introduces a new design decision worth recording.
