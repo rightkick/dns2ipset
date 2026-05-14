@@ -130,6 +130,7 @@ make test-integration  # requires root + ipset (build-tag `integration`)
 - Export additional DNS stats as Prometheus metrics & enrich the Grafana dashboard.
 - Support rules sourced from threat intelligence feeds.
 - Provide an API for rules management.
+- Provide flag for lookup logic (longest or shortest domain wins)
 
 ---
 
