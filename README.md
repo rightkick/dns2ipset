@@ -13,7 +13,7 @@ I wanted to firewall traffic by domain without being tied to a specific resolver
 
 # dns2ipset with eBPF
 
-Snoop DNS replies via eBPF and populate Linux kernel `ipset`s so `iptables`
+Snoop DNS replies via eBPF and populate Linux kernel `ipset` so `iptables`
 can match traffic by domain. The eBPF observer is off the data path —
 sub-microsecond overhead per packet, essentially no impact on DNS latency
 under load.
@@ -124,12 +124,13 @@ make test-integration  # requires root + ipset (build-tag `integration`)
 
 ## Roadmap
 
-- Export additional DNS stats as Prometheus metrics.
+- Option to dynamically create ipsets
+- Support nftables
+- Add `iptables` and `nftables` integration examples.
+- Export additional DNS stats as Prometheus metrics & enrich the Grafana dashboard.
 - Support rules sourced from threat intelligence feeds.
 - Load rules in memory for faster processing.
 - Provide an API for rules management.
-- Enrich the Grafana dashboard.
-- Add `iptables` and `nftables` integration examples.
 
 ---
 
