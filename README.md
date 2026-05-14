@@ -67,8 +67,8 @@ still need to pre-create ipsets and write your rules:
 # 1. Pre-create each ipset referenced in your rules. dns2ipset does
 #    not create sets — only adds entries. The `timeout` flag is
 #    mandatory so per-entry TTLs from the daemon take effect.
-sudo ipset create snoop_fb_v4 hash:ip family inet  timeout 86400
-sudo ipset create snoop_fb_v6 hash:ip family inet6 timeout 86400
+sudo ipset create ipset_example_v4 hash:ip family inet  timeout 86400
+sudo ipset create ipset_example_v6 hash:ip family inet6 timeout 86400
 
 # 2. Write your rules.
 sudo cp /etc/dns2ipset/rules.example.yaml /etc/dns2ipset/rules.yaml
@@ -92,8 +92,8 @@ The systemd unit grants `CAP_BPF`, `CAP_PERFMON`, `CAP_NET_ADMIN` via
 After the steps above, on the gateway:
 
 ```
-dig @127.0.0.1 www.facebook.com
-sudo ipset list snoop_fb_v4
+dig @127.0.0.1 www.example.com
+sudo ipset list ipset_example_v4
 ```
 
 The resolved IPs should appear in the set within ~100 ms, with TTLs
@@ -129,7 +129,6 @@ make test-integration  # requires root + ipset (build-tag `integration`)
 - Add `iptables` and `nftables` integration examples.
 - Export additional DNS stats as Prometheus metrics & enrich the Grafana dashboard.
 - Support rules sourced from threat intelligence feeds.
-- Load rules in memory for faster processing.
 - Provide an API for rules management.
 
 ---

@@ -22,29 +22,29 @@ func buildResp(t *testing.T, qname string, qtype uint16, answers []dns.RR, rcode
 }
 
 func TestParse_ARecord(t *testing.T) {
-	a := &dns.A{Hdr: dns.RR_Header{Name: "facebook.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300}, A: net.ParseIP("1.2.3.4")}
-	b := buildResp(t, "facebook.com", dns.TypeA, []dns.RR{a}, dns.RcodeSuccess)
+	a := &dns.A{Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300}, A: net.ParseIP("1.2.3.4")}
+	b := buildResp(t, "example.com", dns.TypeA, []dns.RR{a}, dns.RcodeSuccess)
 
 	r, err := Parse(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.QName != "facebook.com" {
+	if r.QName != "example.com" {
 		t.Errorf("qname = %q", r.QName)
 	}
 	if len(r.Records) != 1 {
 		t.Fatalf("len(records) = %d", len(r.Records))
 	}
 	rec := r.Records[0]
-	if rec.Name != "facebook.com" || !rec.IP.Equal(net.ParseIP("1.2.3.4")) || rec.TTL != 300 || rec.Family != 4 {
+	if rec.Name != "example.com" || !rec.IP.Equal(net.ParseIP("1.2.3.4")) || rec.TTL != 300 || rec.Family != 4 {
 		t.Errorf("record = %+v", rec)
 	}
 }
 
 func TestParse_CNAMEChainProducesAllOwners(t *testing.T) {
-	cname := &dns.CNAME{Hdr: dns.RR_Header{Name: "www.facebook.com.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60}, Target: "star-mini.c10r.facebook.com."}
-	a := &dns.A{Hdr: dns.RR_Header{Name: "star-mini.c10r.facebook.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.ParseIP("31.13.65.36")}
-	b := buildResp(t, "www.facebook.com", dns.TypeA, []dns.RR{cname, a}, dns.RcodeSuccess)
+	cname := &dns.CNAME{Hdr: dns.RR_Header{Name: "www.example.com.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60}, Target: "star-mini.c10r.example.com."}
+	a := &dns.A{Hdr: dns.RR_Header{Name: "star-mini.c10r.example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.ParseIP("31.13.65.36")}
+	b := buildResp(t, "www.example.com", dns.TypeA, []dns.RR{cname, a}, dns.RcodeSuccess)
 
 	r, err := Parse(b)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestParse_CNAMEChainProducesAllOwners(t *testing.T) {
 		got[rec.Name] = true
 	}
 	// QName + every owner-name in the answer chain must be available to caller.
-	for _, want := range []string{"www.facebook.com", "star-mini.c10r.facebook.com"} {
+	for _, want := range []string{"www.example.com", "star-mini.c10r.example.com"} {
 		if !got[want] {
 			t.Errorf("missing owner %q in records (got %v)", want, got)
 		}

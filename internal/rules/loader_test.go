@@ -20,11 +20,11 @@ func TestLoad_ValidProducesTrie(t *testing.T) {
 	p := writeTemp(t, `
 version: 1
 rules:
-  - domain: facebook.com
-    ipset_v4: snoop_fb_v4
-    ipset_v6: snoop_fb_v6
+  - domain: example.com
+    ipset_v4: ipset_example_v4
+    ipset_v6: ipset_example_v6
   - domain: ads.example.org
-    ipset_v4: snoop_ads_v4
+    ipset_v4: ipset_ads_v4
 `)
 	rs, err := Load(p)
 	if err != nil {
@@ -34,12 +34,12 @@ rules:
 		t.Fatalf("got %d rules, want 2", len(rs.Rules))
 	}
 	tr := rs.BuildTrie()
-	v, ok := tr.Lookup("www.facebook.com")
+	v, ok := tr.Lookup("www.example.com")
 	if !ok {
-		t.Fatal("expected facebook.com match")
+		t.Fatal("expected example.com match")
 	}
 	r := v.(*Rule)
-	if r.IPSetV4 != "snoop_fb_v4" || r.IPSetV6 != "snoop_fb_v6" {
+	if r.IPSetV4 != "ipset_example_v4" || r.IPSetV6 != "ipset_example_v6" {
 		t.Errorf("rule mismatch: %+v", r)
 	}
 }

@@ -125,8 +125,8 @@ set and one v6 set, with `timeout` so per-entry expiry from the daemon
 takes effect:
 
 ```bash
-sudo ipset create snoop_fb_v4 hash:ip family inet  timeout 86400
-sudo ipset create snoop_fb_v6 hash:ip family inet6 timeout 86400
+sudo ipset create ipset_example_v4 hash:ip family inet  timeout 86400
+sudo ipset create ipset_example_v6 hash:ip family inet6 timeout 86400
 sudo ipset list -terse
 ```
 
@@ -143,9 +143,9 @@ sudo install -d /etc/dns2ipset
 sudo tee /etc/dns2ipset/rules.yaml > /dev/null <<'EOF'
 version: 1
 rules:
-  - domain: facebook.com
-    ipset_v4: snoop_fb_v4
-    ipset_v6: snoop_fb_v6
+  - domain: example.com
+    ipset_v4: ipset_example_v4
+    ipset_v6: ipset_example_v6
 EOF
 
 sudo install -m 0644 deploy/dns2ipset.service /etc/systemd/system/
@@ -177,22 +177,22 @@ Common failures:
 
 ```bash
 # Trigger a fresh resolution. Use +trace +recurse to make sure it isn't cached.
-dig @127.0.0.1 facebook.com +short
-dig @127.0.0.1 www.facebook.com +short
+dig @127.0.0.1 example.com +short
+dig @127.0.0.1 www.example.com +short
 
 # Within ~100 ms the IPs should appear in the set.
-sudo ipset list snoop_fb_v4
-sudo ipset list snoop_fb_v6
+sudo ipset list ipset_example_v4
+sudo ipset list ipset_example_v6
 ```
 
 Expected: each `ipset list` shows the resolved addresses with TTLs near the
-DNS answer's TTL (typically 30–600 seconds for facebook.com).
+DNS answer's TTL (typically 30–600 seconds for example.com).
 
 Negative test (a domain NOT in the rules):
 
 ```bash
 dig @127.0.0.1 example.org +short
-sudo ipset list snoop_fb_v4         # unchanged
+sudo ipset list ipset_example_v4         # unchanged
 ```
 
 Reload test (atomic-rename swap):
@@ -202,11 +202,11 @@ sudo tee /tmp/rules.new > /dev/null <<'EOF'
 version: 1
 rules:
   - domain: github.com
-    ipset_v4: snoop_fb_v4
+    ipset_v4: ipset_example_v4
 EOF
 sudo mv /tmp/rules.new /etc/dns2ipset/rules.yaml      # inotify fires
 dig @127.0.0.1 github.com +short
-sudo ipset list snoop_fb_v4                           # github.com IPs now appear
+sudo ipset list ipset_example_v4                           # github.com IPs now appear
 ```
 
 The journal should show `rules reloaded rules=1` from the inotify watcher.
@@ -219,16 +219,16 @@ To prove the loop closes — DNS-resolved IPs really do block traffic:
 
 ```bash
 # Add a DROP rule against the v4 set
-sudo iptables -I OUTPUT -m set --match-set snoop_fb_v4 dst -j DROP
+sudo iptables -I OUTPUT -m set --match-set ipset_example_v4 dst -j DROP
 
 # Re-resolve so a fresh IP lands in the set, then try to reach it
-sudo ipset flush snoop_fb_v4
-dig @127.0.0.1 www.facebook.com +short
-curl -m 5 -I https://www.facebook.com               # should time out / fail
+sudo ipset flush ipset_example_v4
+dig @127.0.0.1 www.example.com +short
+curl -m 5 -I https://www.example.com               # should time out / fail
 
 # Cleanup
-sudo iptables -D OUTPUT -m set --match-set snoop_fb_v4 dst -j DROP
-sudo ipset flush snoop_fb_v4
+sudo iptables -D OUTPUT -m set --match-set ipset_example_v4 dst -j DROP
+sudo ipset flush ipset_example_v4
 ```
 
 ---
@@ -244,8 +244,8 @@ curl -s http://127.0.0.1:9301/metrics | grep -E '^dns2ipset_'
 Useful counters under load:
 - `dns2ipset_events_total{direction="send"|"recv"}` — should both increase
   during traffic.
-- `dns2ipset_matches_total{rule="facebook.com"}` — incremented per matched response.
-- `dns2ipset_ipset_writes_total{set="snoop_fb_v4",family="v4"}` — successful adds.
+- `dns2ipset_matches_total{rule="example.com"}` — incremented per matched response.
+- `dns2ipset_ipset_writes_total{set="ipset_example_v4",family="v4"}` — successful adds.
 - `dns2ipset_ipset_errors_total{reason="missing"}` — should stay 0 if you
   pre-created the sets.
 - `dns2ipset_dedup_hits_total` — usually equal to or close to `recv` events,
@@ -265,8 +265,8 @@ sudo rm /etc/systemd/system/dns2ipset.service
 sudo systemctl daemon-reload
 sudo rm /usr/local/bin/dns2ipset
 sudo rm -rf /etc/dns2ipset
-sudo ipset destroy snoop_fb_v4
-sudo ipset destroy snoop_fb_v6
+sudo ipset destroy ipset_example_v4
+sudo ipset destroy ipset_example_v6
 ```
 
 ---
@@ -277,7 +277,7 @@ sudo ipset destroy snoop_fb_v6
 |---|---|---|
 | `failed to load BPF object: program: …: invalid argument` | `vmlinux.h` was generated against a different kernel | Re-run `sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/bpf/c/headers/vmlinux.h && make generate` on this VM |
 | `attach udp_sendmsg: not supported` | Kernel doesn't expose fentry attach | Need ≥ 5.5 with BTF; on Debian use the stock kernel (≥ 6.1) |
-| `ipset "snoop_fb_v4" missing` in logs | Set was never created, or got destroyed | `sudo ipset create snoop_fb_v4 hash:ip family inet timeout 86400` |
-| `ipset list snoop_fb_v4` empty after `dig` | DNS query was answered from local cache, no new wire response | `sudo systemctl restart <resolver>` to flush cache, then `dig +trace` |
-| Curl still reaches Facebook with iptables DROP rule | DNS gave a CDN pool of IPs and curl picked one not yet in the set | `sudo ipset list` to see what's there; fresh `dig` populates more |
+| `ipset "ipset_example_v4" missing` in logs | Set was never created, or got destroyed | `sudo ipset create ipset_example_v4 hash:ip family inet timeout 86400` |
+| `ipset list ipset_example_v4` empty after `dig` | DNS query was answered from local cache, no new wire response | `sudo systemctl restart <resolver>` to flush cache, then `dig +trace` |
+| Curl still reaches example.com with iptables DROP rule | DNS gave a CDN pool of IPs and curl picked one not yet in the set | `sudo ipset list` to see what's there; fresh `dig` populates more |
 | `rules.yaml` change doesn't take effect | Watcher isn't seeing the inotify event (e.g. file edited via `cp` overwriting in place outside the watched dir) | Use `mv` (atomic rename) into the dir, or send `SIGHUP` to force reload: `sudo systemctl kill -s HUP dns2ipset` |

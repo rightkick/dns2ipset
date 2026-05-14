@@ -120,7 +120,7 @@ sudo SNOOP_COUNT=100 bash stress/setup-snoop-rules.sh
 ```
 
 This atomically writes `/etc/dns2ipset/rules.yaml` with N rules and creates
-N `snoop_top_<i>_v4` ipsets. dns2ipset's inotify watcher picks up the new
+N `ipset_top_<i>_v4` ipsets. dns2ipset's inotify watcher picks up the new
 rules.yaml without a service restart.
 
 On the **client VM**:
@@ -208,7 +208,7 @@ When you're done:
 
 ```bash
 # from the dns2ipset repo on the gateway
-. stress/lib.sh && wipe_ipsets_with_prefix snoop_top_
+. stress/lib.sh && wipe_ipsets_with_prefix ipset_top_
 sudo bash stress/teardown.sh   # restores rules.yaml to rules: [] and restarts dns2ipset
 ```
 
