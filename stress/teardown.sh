@@ -10,7 +10,7 @@ sudo pkill -f fake-resolver 2>/dev/null || true
 echo "restoring minimal rules.yaml…"
 clear_rules
 
-echo "destroying snoop_bench_* ipsets…"
+echo "destroying ipset_bench_* ipsets…"
 wipe_bench_ipsets
 
 echo "restarting $SERVICE…"

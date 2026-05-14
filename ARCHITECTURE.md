@@ -70,7 +70,7 @@ flowchart TB
         end
 
         Rules[/"/etc/dns2ipset/rules.yaml<br/>(inotify-watched, hot-reload)"/]
-        Sets[("kernel ipsets<br/>snoop_*_v4 / _v6")]
+        Sets[("kernel ipsets<br/>ipset_*_v4 / _v6")]
         Iptables["iptables &nbsp;-m set &nbsp;--match-set ...<br/>(rule enforcement, separate from dns2ipset)"]
     end
 
@@ -138,15 +138,15 @@ touching BPF maps.
   ```yaml
   version: 1
   rules:
-    - domain: facebook.com         # matches facebook.com AND *.facebook.com
-      ipset_v4: snoop_fb_v4        # pre-created with `timeout` flag
-      ipset_v6: snoop_fb_v6        # optional; omit to skip AAAA records
+    - domain: example.com         # matches example.com AND *.example.com
+      ipset_v4: ipset_example_v4        # pre-created with `timeout` flag
+      ipset_v6: ipset_example_v6        # optional; omit to skip AAAA records
     - domain: ads.example.org
-      ipset_v4: snoop_ads_v4
+      ipset_v4: ipset_ads_v4
   ```
 - **Matching:** suffix-based, case-insensitive, label-aligned.
-  `facebook.com` matches `facebook.com`, `www.facebook.com`,
-  `a.b.facebook.com`, but NOT `notfacebook.com`.
+  `example.com` matches `example.com`, `www.example.com`,
+  `a.b.example.com`, but NOT `notexample.com`.
 - **Reload:** inotify on the *parent directory* of the rules file (so
   atomic-rename writes are caught — `IN_MOVED_TO` for the target name,
   `IN_CLOSE_WRITE` for in-place edits). Trie is rebuilt off-thread and
@@ -157,9 +157,29 @@ touching BPF maps.
 
 ### 4. Suffix trie ([internal/rules/trie.go](internal/rules/trie.go))
 
-- Labels stored reversed (root → `com` → `facebook` → terminal). Lookup
-  walks the candidate name's labels right-to-left; first terminal match
-  wins. O(label-count) per lookup.
+A **trie** (pronounced "try") is an in-memory tree keyed one piece at a
+time, where branches sharing a prefix share nodes — so lookup cost is
+proportional to the length of the key, not the number of stored entries.
+For DNS suffix matching we feed the labels in **reverse** order so that
+common parents (TLDs) sit near the root and a "terminal" marker on a node
+means *any name ending here is a match*.
+
+Example trie for rules `example.com` and `ads.example.org`:
+
+```
+(root)
+├── com
+│   └── example *      → ipset_example_v4 / ipset_example_v6
+└── org
+    └── example
+        └── ads *       → ipset_ads_v4
+```
+
+`*` marks a terminal node. Looking up `a.b.example.com` walks
+`com → example` right-to-left, hits the terminal, and returns the rule.
+Cost is O(label-count) per lookup, with no allocations — and crucially
+no disk or syscall on the hot path, since the whole trie lives in heap
+memory (see §2 below).
 
 ### 5. DNS parser ([internal/dnsparse/](internal/dnsparse/))
 
@@ -216,10 +236,19 @@ C is moved one level down into `c/` and bpf2go is pointed at
 `c/dns2ipset.bpf.c`.
 
 ### 2. Atomic snapshot store with pre-built trie
-`rules.Store` holds a `*snapshot{RuleSet, Trie}` via `atomic.Value`.
-`Replace` builds the new trie synchronously and stores both atomically.
-The pipeline hot path calls `Store.Trie()` once per event — a single
-atomic load, no rebuild. `Replace(nil)` is a deliberate no-op (an
+The active ruleset and its pre-built trie live **entirely in memory** —
+the rules file is read from disk exactly twice in the daemon's lifecycle
+per change: once at startup, and once each time the file is modified
+(inotify-triggered). There is no per-lookup disk I/O, no re-parse, and
+no syscall on the hot path.
+
+`rules.Store` wraps a `*snapshot{RuleSet, Trie}` in an `atomic.Value`.
+`Replace` does the expensive work off the hot path — parse YAML, build
+a fresh trie — and then atomically swaps the new snapshot in. The
+pipeline calls `Store.Trie()` once per DNS event: a single atomic
+pointer load, followed by an in-memory trie walk. In-flight lookups
+holding the previous snapshot finish on it safely; it's garbage-collected
+once the last reference drops. `Replace(nil)` is a deliberate no-op (an
 `atomic.Value` typed-nil would panic).
 
 ### 3. Pipeline workers exit on events-channel close, not on ctx
@@ -311,9 +340,9 @@ Exposed on `--metrics-addr` when set (e.g. `127.0.0.1:9301`).
 |---|---|---|
 | `dns2ipset_ringbuf_drops_total` always 0 | [internal/bpf/loader.go](internal/bpf/loader.go) | cilium/ebpf v0.21 `ringbuf.Record` has no per-record loss count (that's a perf-buffer concept). Counter exists for future wiring. |
 | `bpf_probe_read` order | [internal/bpf/c/dns2ipset.bpf.c](internal/bpf/c/dns2ipset.bpf.c) | Tries generic `bpf_probe_read` before `bpf_probe_read_kernel`. On kernels ≥ 5.14 the generic helper is deprecated; ideal order is `bpf_probe_read_user` for `udp_sendmsg`, `bpf_probe_read_kernel` for `udp_recvmsg`. Currently works on 6.1; revisit if loading fails on stricter kernels. |
-| Trie semantics ambiguity | [internal/rules/trie.go](internal/rules/trie.go) | Shortest-suffix-wins per design; convention is longest. If users want longest, only `Lookup` and one test change. |
-| CI does not load BPF on a real kernel | [.github/workflows/ci.yml](.github/workflows/ci.yml) | The Debian VM walkthrough is the kernel-load gate. |
-| Single-iov-segment read | BPF C `handle()` | Only `iov[0]` is copied. UDP DNS is always single-segment in practice; multi-segment iovs would silently drop later segments. |
+| Trie semantics ambiguity | [internal/rules/trie.go](internal/rules/trie.go) | Shortest-suffix-wins per design; convention is longest. If we need longest match first, need to update the Lookup logic. |
+| CI does not load BPF on a real kernel | [.github/workflows/ci.yml](.github/workflows/ci.yml) | The Debian VM walkthrough is the kernel-load verification. |
+| Single-iov-segment read | BPF C `handle()` | Only `iov[0]` is copied. UDP DNS is always single-segment in practice; multi-segment iovs (I/O vectors) would silently drop later segments. |
 
 ---
 

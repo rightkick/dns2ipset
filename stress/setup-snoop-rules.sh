@@ -10,14 +10,14 @@
 #   DOMAIN_LIST    default ../stress/domain-list.csv (relative to this script)
 #   SNOOP_COUNT    default 100      top-N domains used as rules
 #   RULES_FILE     default /etc/dns2ipset/rules.yaml
-#   SET_PREFIX     default snoop_top_   ipset name prefix
+#   SET_PREFIX     default ipset_top_   ipset name prefix
 #   TIMEOUT        default 86400    seconds; ipset entry TTL ceiling
 #
 # Idempotent: re-running with the same SNOOP_COUNT regenerates the same
 # rules.yaml and re-creates the ipsets (no-op if they already exist).
 #
 # Cleanup later with:
-#   . stress/lib.sh && wipe_ipsets_with_prefix snoop_top_
+#   . stress/lib.sh && wipe_ipsets_with_prefix ipset_top_
 #   sudo bash stress/teardown.sh   # also restores rules.yaml to rules: []
 set -euo pipefail
 
@@ -26,7 +26,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 DOMAIN_LIST=${DOMAIN_LIST:-$SCRIPT_DIR/domain-list.csv}
 SNOOP_COUNT=${SNOOP_COUNT:-100}
-SET_PREFIX=${SET_PREFIX:-snoop_top_}
+SET_PREFIX=${SET_PREFIX:-ipset_top_}
 TIMEOUT=${TIMEOUT:-86400}
 
 need_cmd awk ipset

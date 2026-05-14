@@ -57,15 +57,15 @@ func TestPipeline_MatchedDomainPushesIPs(t *testing.T) {
 	rs, err := rules.LoadFromBytes([]byte(`
 version: 1
 rules:
-  - domain: facebook.com
-    ipset_v4: snoop_fb_v4
+  - domain: example.com
+    ipset_v4: ipset_example_v4
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	store.Replace(rs)
 
-	payload := packResp(t, "www.facebook.com", []net.IP{net.ParseIP("1.2.3.4")}, 300)
+	payload := packResp(t, "www.example.com", []net.IP{net.ParseIP("1.2.3.4")}, 300)
 	src := &fake.Source{Events: []source.Event{{Payload: payload}}}
 
 	rec := &recIPSet{}
@@ -90,17 +90,17 @@ rules:
 		t.Fatalf("got %d calls, want 1: %+v", len(rec.calls), rec.calls)
 	}
 	c := rec.calls[0]
-	if c.set != "snoop_fb_v4" || !c.ip.Equal(net.ParseIP("1.2.3.4")) || c.ttl != 300*time.Second {
+	if c.set != "ipset_example_v4" || !c.ip.Equal(net.ParseIP("1.2.3.4")) || c.ttl != 300*time.Second {
 		t.Errorf("call mismatch: %+v", c)
 	}
 }
 
 func TestPipeline_UnmatchedDomainNoOp(t *testing.T) {
 	store := rules.NewStore()
-	rs, _ := rules.LoadFromBytes([]byte("version: 1\nrules:\n  - {domain: facebook.com, ipset_v4: x}\n"))
+	rs, _ := rules.LoadFromBytes([]byte("version: 1\nrules:\n  - {domain: example.com, ipset_v4: x}\n"))
 	store.Replace(rs)
 
-	payload := packResp(t, "example.com", []net.IP{net.ParseIP("9.9.9.9")}, 30)
+	payload := packResp(t, "unrelated.test", []net.IP{net.ParseIP("9.9.9.9")}, 30)
 	src := &fake.Source{Events: []source.Event{{Payload: payload}}}
 	rec := &recIPSet{}
 	d, _ := dedup.New(64, 100*time.Millisecond)
@@ -117,10 +117,10 @@ func TestPipeline_UnmatchedDomainNoOp(t *testing.T) {
 
 func TestPipeline_DedupSuppressesDuplicate(t *testing.T) {
 	store := rules.NewStore()
-	rs, _ := rules.LoadFromBytes([]byte("version: 1\nrules:\n  - {domain: facebook.com, ipset_v4: x}\n"))
+	rs, _ := rules.LoadFromBytes([]byte("version: 1\nrules:\n  - {domain: example.com, ipset_v4: x}\n"))
 	store.Replace(rs)
 
-	payload := packResp(t, "facebook.com", []net.IP{net.ParseIP("1.1.1.1")}, 60)
+	payload := packResp(t, "example.com", []net.IP{net.ParseIP("1.1.1.1")}, 60)
 	src := &fake.Source{Events: []source.Event{{Payload: payload}, {Payload: payload}}}
 	rec := &recIPSet{}
 	d, _ := dedup.New(64, time.Second)

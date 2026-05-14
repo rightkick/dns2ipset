@@ -22,7 +22,7 @@ trap 'cd /; fake_resolver_stop; rm -rf "$WORKDIR"' EXIT
 # loadgen continues to match.
 echo "bench-1.test A" > "$WORKDIR/queries.txt"
 for i in $(seq 1 "$RULES_VARIANTS"); do
-    sname="snoop_bench_${i}_v4"
+    sname="ipset_bench_${i}_v4"
     ipset_create_v4 "$sname"
     cat > "$WORKDIR/rules-v$i.yaml" <<EOF
 version: 1
@@ -71,6 +71,6 @@ metrics_diff "$WORKDIR/metrics.before" "$WORKDIR/metrics.after" \
 
 announce "ipsets touched (each variant should have entries)"
 for i in $(seq 1 "$RULES_VARIANTS"); do
-    sudo ipset list "snoop_bench_${i}_v4" -terse
+    sudo ipset list "ipset_bench_${i}_v4" -terse
 done
 trap - EXIT

@@ -18,7 +18,7 @@ trap 'cd /; fake_resolver_stop; rm -rf "$WORKDIR"' EXIT
 
 echo "$RULE_DOMAIN A" > "$WORKDIR/queries.txt"
 
-generate_rules 1 bench snoop_bench
+generate_rules 1 bench ipset_bench
 sudo systemctl restart "$SERVICE"
 sleep 1
 fake_resolver_start "$POOL" 60
@@ -34,7 +34,7 @@ metrics_snapshot "$WORKDIR/metrics.after"
 awk '/Statistics:/,/^$/' "$WORKDIR/dnsperf.txt"
 
 announce "ipset state"
-sudo ipset list snoop_bench_1_v4 -terse
+sudo ipset list ipset_bench_1_v4 -terse
 
 announce "metric deltas"
 metrics_diff "$WORKDIR/metrics.before" "$WORKDIR/metrics.after" | head -40

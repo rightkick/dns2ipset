@@ -22,7 +22,7 @@ trap 'cd /; fake_resolver_stop; rm -rf "$WORKDIR"' EXIT
 duration_sec=$((DURATION_HOURS * 3600))
 echo "$RULE_DOMAIN A" > "$WORKDIR/queries.txt"
 
-generate_rules 1 bench snoop_bench
+generate_rules 1 bench ipset_bench
 sudo systemctl restart "$SERVICE"
 sleep 1
 fake_resolver_start "$POOL" 60

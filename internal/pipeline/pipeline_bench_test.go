@@ -69,8 +69,8 @@ func newBenchPipeline(b *testing.B, ruleDomain string) *Pipeline {
 // call after the first hits the dedup fast path and we measure the wrong
 // thing.
 func BenchmarkPipeline_Match(b *testing.B) {
-	p := newBenchPipeline(b, "facebook.com")
-	base := packBenchResp("www.facebook.com")
+	p := newBenchPipeline(b, "example.com")
+	base := packBenchResp("www.example.com")
 	payload := make([]byte, len(base))
 
 	b.ReportAllocs()
@@ -89,7 +89,7 @@ func BenchmarkPipeline_Match(b *testing.B) {
 // BenchmarkPipeline_NoMatch is the same shape but the qname misses the trie.
 // Exercises dedup + parse + trie miss; skips the ipset dispatch path.
 func BenchmarkPipeline_NoMatch(b *testing.B) {
-	p := newBenchPipeline(b, "facebook.com")
+	p := newBenchPipeline(b, "example.com")
 	base := packBenchResp("example.org")
 	payload := make([]byte, len(base))
 
@@ -109,8 +109,8 @@ func BenchmarkPipeline_NoMatch(b *testing.B) {
 // dedup hit (same payload). Should be the fastest of the three — measures
 // just the FNV hash + LRU lookup + early return.
 func BenchmarkPipeline_DedupHit(b *testing.B) {
-	p := newBenchPipeline(b, "facebook.com")
-	payload := packBenchResp("www.facebook.com")
+	p := newBenchPipeline(b, "example.com")
+	payload := packBenchResp("www.example.com")
 	// Prime the dedup so the first call is a hit too.
 	p.handle(source.Event{Payload: payload, Direction: source.DirRecv})
 

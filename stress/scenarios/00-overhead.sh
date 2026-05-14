@@ -59,7 +59,7 @@ run_load "BASELINE (dns2ipset stopped)" "$WORKDIR/baseline"
 fake_resolver_stop
 
 # 2) configure & start dns2ipset
-generate_rules 1 bench snoop_bench
+generate_rules 1 bench ipset_bench
 sudo systemctl start "$SERVICE"
 sleep 1   # let the daemon attach BPF + watch rules
 fake_resolver_start "$POOL" 60

@@ -18,7 +18,7 @@ trap 'cd /; fake_resolver_stop; rm -rf "$WORKDIR"' EXIT
 
 generate_queries_file "$RULES" bench "$WORKDIR/queries.txt"
 
-generate_rules "$RULES" bench snoop_bench
+generate_rules "$RULES" bench ipset_bench
 sudo systemctl restart "$SERVICE"
 sleep 2  # rules.yaml is bigger; give the loader time
 fake_resolver_start "$POOL" 60

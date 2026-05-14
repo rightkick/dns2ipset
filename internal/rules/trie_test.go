@@ -4,16 +4,16 @@ import "testing"
 
 func TestTrie_ExactAndSubdomainMatch(t *testing.T) {
 	tr := NewTrie()
-	tr.Insert("facebook.com", "fb")
+	tr.Insert("example.com", "example")
 
 	cases := []struct {
 		name string
 		want any
 	}{
-		{"facebook.com", "fb"},
-		{"www.facebook.com", "fb"},
-		{"a.b.facebook.com", "fb"},
-		{"FACEBOOK.com", "fb"}, // case-insensitive
+		{"example.com", "example"},
+		{"www.example.com", "example"},
+		{"a.b.example.com", "example"},
+		{"EXAMPLE.com", "example"}, // case-insensitive
 	}
 	for _, c := range cases {
 		got, ok := tr.Lookup(c.name)
@@ -25,9 +25,9 @@ func TestTrie_ExactAndSubdomainMatch(t *testing.T) {
 
 func TestTrie_LabelAlignedNoSubstringMatch(t *testing.T) {
 	tr := NewTrie()
-	tr.Insert("facebook.com", "fb")
+	tr.Insert("example.com", "example")
 
-	for _, name := range []string{"notfacebook.com", "facebook.com.evil.org", "com"} {
+	for _, name := range []string{"notexample.com", "example.com.evil.org", "com"} {
 		if _, ok := tr.Lookup(name); ok {
 			t.Errorf("Lookup(%q) matched but should not have", name)
 		}
@@ -48,8 +48,8 @@ func TestTrie_ShortestSuffixWins(t *testing.T) {
 
 func TestTrie_TrailingDotIgnored(t *testing.T) {
 	tr := NewTrie()
-	tr.Insert("facebook.com", "fb")
-	if got, ok := tr.Lookup("www.facebook.com."); !ok || got != "fb" {
+	tr.Insert("example.com", "example")
+	if got, ok := tr.Lookup("www.example.com."); !ok || got != "example" {
 		t.Errorf("trailing dot not handled: got (%v,%v)", got, ok)
 	}
 }

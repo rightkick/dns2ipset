@@ -27,8 +27,8 @@ cat <<'EOF'
 dns2ipset installed. Next steps:
   1. Pre-create the ipsets referenced by your rules (the daemon does
      not create sets — only adds entries):
-       sudo ipset create snoop_example_v4 hash:ip family inet  timeout 86400
-       sudo ipset create snoop_example_v6 hash:ip family inet6 timeout 86400
+       sudo ipset create ipset_example_v4 hash:ip family inet  timeout 86400
+       sudo ipset create ipset_example_v6 hash:ip family inet6 timeout 86400
   2. Write your rules into /etc/dns2ipset/rules.yaml
      (a sample is at /etc/dns2ipset/rules.example.yaml).
   3. Start the service:

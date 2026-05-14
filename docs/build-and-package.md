@@ -73,8 +73,8 @@ to pre-create ipsets and write your rules file.
 ```
 # 1. Create each ipset referenced in your rules. The daemon does not
 #    create sets; the `timeout` flag is mandatory.
-sudo ipset create snoop_fb_v4 hash:ip family inet  timeout 86400
-sudo ipset create snoop_fb_v6 hash:ip family inet6 timeout 86400
+sudo ipset create ipset_example_v4 hash:ip family inet  timeout 86400
+sudo ipset create ipset_example_v6 hash:ip family inet6 timeout 86400
 
 # 2. Write your rules.
 sudo cp /etc/dns2ipset/rules.example.yaml /etc/dns2ipset/rules.yaml
@@ -112,7 +112,7 @@ extremes you actually deploy to. A useful matrix:
 For each target, after `apt install` and the start sequence above:
 
 1. `journalctl -u dns2ipset -n 50` — no "load BPF object" or "attach" errors.
-2. `dig @127.0.0.1 facebook.com +short` followed by `sudo ipset list snoop_fb_v4` — set populates within ~100 ms.
+2. `dig @127.0.0.1 example.com +short` followed by `sudo ipset list ipset_example_v4` — set populates within ~100 ms.
 3. `curl -s http://127.0.0.1:9301/metrics | grep dns2ipset_events_total` — increments under traffic.
 4. Atomic-rename of `/etc/dns2ipset/rules.yaml` ticks `dns2ipset_rules_reload_total{result="ok"}`.
 
@@ -131,7 +131,7 @@ and rebuild.
 | Postinst prints `WARNING — /sys/kernel/btf/vmlinux is missing` | Target kernel lacks BTF | Install a kernel with `CONFIG_DEBUG_INFO_BTF=y`, or don't deploy here |
 | `dpkg: dependency problems` on `ipset` | `ipset` package missing on target | `sudo apt install ipset` then re-install the .deb |
 | `journalctl` shows `failed to load BPF object: program: …: invalid argument` on a target newer than the build host | Very rare CO-RE relocation miss | File against the BPF C; do not work around in packaging |
-| `ipset list snoop_fb_v4` empty after `dig` | DNS answer came from local cache, no wire traffic | `sudo systemctl restart <resolver>` to flush cache, then `dig +trace` |
+| `ipset list ipset_example_v4` empty after `dig` | DNS answer came from local cache, no wire traffic | `sudo systemctl restart <resolver>` to flush cache, then `dig +trace` |
 | `make package` fails with "nfpm: command not found" | Stale Go module cache or no internet | `go clean -modcache` and retry; or pre-fetch with `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest` |
 
 For a full troubleshooting reference (including BPF/iptables-side issues),

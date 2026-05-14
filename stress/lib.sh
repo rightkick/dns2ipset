@@ -101,7 +101,7 @@ ipset_destroy() {
 #   <rule-prefix>-<i>.test -> <set-prefix>-<i>-v4
 # and creates the matching v4 ipsets.
 generate_rules() {
-    local count=$1 rprefix=${2:-bench} sprefix=${3:-snoop_bench}
+    local count=$1 rprefix=${2:-bench} sprefix=${3:-ipset_bench}
     local body="version: 1\nrules:\n"
     for i in $(seq 1 "$count"); do
         body+="  - {domain: ${rprefix}-${i}.test, ipset_v4: ${sprefix}_${i}_v4}\n"
@@ -134,8 +134,8 @@ wipe_ipsets_with_prefix() {
     done
 }
 
-# wipe_bench_ipsets — destroy all snoop_bench_*_v4 sets.
-wipe_bench_ipsets() { wipe_ipsets_with_prefix snoop_bench_; }
+# wipe_bench_ipsets — destroy all ipset_bench_*_v4 sets.
+wipe_bench_ipsets() { wipe_ipsets_with_prefix ipset_bench_; }
 
 # metrics_get <name> [labels-substr] — read a single counter/gauge value.
 # Example: metrics_get dns2ipset_events_total 'direction="recv"'
